@@ -1,0 +1,37 @@
+name: verify-script-provider-logs (fork only)
+on:
+  push:
+    branches: [verify/script-provider-logs]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: The three provider test files, with the fix
+        run: npx vitest run test/providers/pythonCompletion.test.ts test/providers/rubyCompletion.test.ts test/providers/golangCompletion.test.ts
+      - name: Biome on the changed files
+        if: always()
+        run: npx @biomejs/biome check src/providers/pythonCompletion.ts src/providers/rubyCompletion.ts src/providers/golangCompletion.ts test/providers/pythonCompletion.test.ts test/providers/rubyCompletion.test.ts test/providers/golangCompletion.test.ts
+      - name: Type check
+        if: always()
+        run: npm run tsc
+      - name: The new tests against main's providers and against the first fix (each expected to fail)
+        if: always()
+        run: |
+          for rev in 6e823b0 2318650; do
+            git checkout $rev -- src/providers/pythonCompletion.ts src/providers/rubyCompletion.ts src/providers/golangCompletion.ts
+            for f in pythonCompletion rubyCompletion golangCompletion; do
+              echo "=== $rev $f"
+              npx vitest run test/providers/$f.test.ts -t "every log message" 2>&1 | grep -E "Tests |AssertionError|\+ +\"" | head -6 || true
+            done
+          done
